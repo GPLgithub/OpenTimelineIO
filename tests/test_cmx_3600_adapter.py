@@ -490,12 +490,19 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
 
     def test_dissolve_parse(self):
         tl = otio.adapters.read_from_file(DISSOLVE_TEST)
-        self.assertEqual(len(tl.tracks[0]), 3)
+        # clip/transition/clip/clip
+        self.assertEqual(len(tl.tracks[0]), 4)
 
         self.assertTrue(isinstance(tl.tracks[0][1], otio.schema.Transition))
 
         self.assertEqual(tl.tracks[0][0].duration().value, 14)
-        self.assertEqual(tl.tracks[0][2].duration().value, 6)
+        self.assertEqual(tl.tracks[0][0].name, "clip_A")
+        self.assertEqual(tl.tracks[0][1].duration().value, 10)
+        self.assertEqual(tl.tracks[0][0].name, "clip_T")
+        self.assertEqual(tl.tracks[0][2].duration().value, 10)
+        self.assertEqual(tl.tracks[0][0].name, "clip_B")
+        self.assertEqual(tl.tracks[0][3].duration().value, 1)
+        self.assertEqual(tl.tracks[0][0].name, "clip_B")
 
     def test_dissolve_parse_middle(self):
         tl = otio.adapters.read_from_file(DISSOLVE_TEST_2)

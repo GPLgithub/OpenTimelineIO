@@ -88,10 +88,17 @@ class EDLParser(object):
 
         # TODO: Sort the tracks V, then A1,A2,etc.
 
-    def add_clip(self, line, comments, rate=24):
+    def add_clip(self, line, comments, rate=24, transition_line=None):
         comment_handler = CommentHandler(comments)
-        clip_handler = ClipHandler(line, comment_handler.handled, rate=rate)
+        clip_handler = ClipHandler(
+            line,
+            comment_handler.handled,
+            rate=rate,
+            transition_line=transition_line
+        )
         clip = clip_handler.clip
+        transition = clip_handler.transition
+        # Add unhandled comments as general comments to meta data.
         if comment_handler.unhandled:
             clip.metadata.setdefault("cmx_3600", {})
             clip.metadata['cmx_3600'].setdefault("comments", [])
@@ -111,11 +118,11 @@ class EDLParser(object):
         # each edit point between two clips is a transition. the default is a
         # cut in the edl format the transition codes are for the transition
         # into the clip
-        self.add_transition(
-            clip_handler,
-            clip_handler.transition_type,
-            clip_handler.transition_data
-        )
+#        self.add_transition(
+#            clip_handler,
+#            clip_handler.transition_type,
+#            clip_handler.transition_data
+#        )
 
         edl_rate = clip_handler.edl_rate
         record_in = opentime.from_timecode(
@@ -174,8 +181,11 @@ class EDLParser(object):
         # Add clip instances to the tracks
         tracks = self.tracks_for_channel(clip_handler.channel_code)
         for track in tracks:
+            track_transition = transition
             if len(tracks) > 1:
                 track_clip = copy.deepcopy(clip)
+                if transition:
+                    track_transition = copy.deepcopy(transition)
             else:
                 track_clip = clip
 
@@ -213,6 +223,16 @@ class EDLParser(object):
                 track.append(gap)
                 _extend_source_range_duration(track, gap.duration())
 
+            if track_transition:
+                if len(track) < 1:
+                    raise EDLParseError(
+                        "Transitions can't be at the beginning of a track"
+                    )
+                prev_clip = track[-1]
+                _extend_source_range_duration(
+                    prev_clip, track_transition.in_offset,
+                )
+                track.append(track_transition)
             track.append(track_clip)
             _extend_source_range_duration(track, track_clip.duration())
 
@@ -310,23 +330,37 @@ class EDLParser(object):
                         break
                 self.add_clip(line_1, comments, rate=rate)
                 self.add_clip(line_2, comments, rate=rate)
-
+            # Check if the first character in the line is a digit
             elif line[0].isdigit():
+                transition_line = None
                 # all 'events' start_time with an edit decision. this is
                 # denoted by the line beginning with a padded integer 000-999
                 comments = []
+                event_id = int(re.match(r'^\d+', line).group(0))
                 while edl_lines:
                     # any non-numbered lines after an edit decision should be
                     # treated as 'comments'
                     # comments are string tags used by the reader to get extra
                     # information not able to be found in the restricted edl
                     # format
-                    if re.match(r'^\D', edl_lines[0]):
+                    m = re.match(r'^\d+', edl_lines[0])
+                    if not m:
                         comments.append(edl_lines.pop(0))
                     else:
-                        break
+                        if int(m.group(0)) == event_id:
+                            # It is not possible to have multiple transitions
+                            # for the same event.
+                            if transition_line:
+                                raise EDLParseError(
+                                    'Invalid transition %s' % edl_lines[0]
+                                )
+                            # Same event id, this is a transition
+                            transition_line = edl_lines.pop(0)
+                        else:
+                            # New event, stop collecting comments and transitions
+                            break
 
-                self.add_clip(line, comments, rate=rate)
+                self.add_clip(line, comments, rate=rate, transition_line=transition_line)
 
             else:
                 raise EDLParseError('Unknown event type')
@@ -344,20 +378,26 @@ class ClipHandler(object):
         r'.*\.(?P<range>\[(?P<start>[0-9]+)-(?P<end>[0-9]+)\])\.\w+$'
     )
 
-    def __init__(self, line, comment_data, rate=24):
+    def __init__(self, line, comment_data, rate=24, transition_line=None):
         self.clip_num = None
         self.reel = None
         self.channel_code = None
         self.edl_rate = rate
         self.transition_id = None
         self.transition_data = None
+        self.transition_type = None
         self.source_tc_in = None
         self.source_tc_out = None
         self.record_tc_in = None
         self.record_tc_out = None
-
+        self.clip = None
+        self.transition = None
         self.parse(line)
+        if transition_line:
+            self.parse(transition_line)
         self.clip = self.make_clip(comment_data)
+        if transition_line:
+            self.transition = self.make_transition()
 
     def is_image_sequence(self, comment_data):
         return self.image_sequence_pattern.search(
@@ -550,7 +590,7 @@ class ClipHandler(object):
             # denotes frame count
             # i haven't figured out how the key transitions (K, KB, KO) work
             (
-                self.clip_num,
+                self.transition_id,
                 self.reel,
                 self.channel_code,
                 self.transition_type,
@@ -562,19 +602,26 @@ class ClipHandler(object):
             ) = fields
 
         elif field_count == 8:
+            edit_type = None
             # no transition data
             # this is for basic cuts
             (
                 self.clip_num,
                 self.reel,
                 self.channel_code,
-                self.transition_type,
+                edit_type,
                 self.source_tc_in,
                 self.source_tc_out,
                 self.record_tc_in,
                 self.record_tc_out
             ) = fields
-
+            # Double check it is a cut
+            if edit_type not in ["C"]:
+                raise EDLParseError(
+                    'incorrect edit type {} in form statement: {}'.format(
+                        edit_type, line,
+                    )
+                )
         else:
             raise EDLParseError(
                 'incorrect number of fields [{0}] in form statement: {1}'
@@ -600,6 +647,48 @@ class ClipHandler(object):
                     )
                 )
 
+    def make_transition(self):
+        # Do some sanity check
+        if self.transition_id != self.clip_num:
+            raise EDLParseError(
+                'transition and event id mismatch: {} vs {}'.format(
+                    self.transaction_id, self.clip_num,
+                )
+            )
+        if re.match(r'W(\d{3})', self.transition_type):
+            otio_transition_type = "SMPTE_Wipe"
+        elif self.transition_type in ['D']:
+            otio_transition_type = schema.TransitionTypes.SMPTE_Dissolve
+        else:
+            raise EDLParseError(
+                "Transition type '{}' not supported by the CMX EDL reader "
+                "currently.".format(transition_type)
+            )
+
+        transition_duration = self.clip.source_range.duration
+
+        # EDL doesn't have enough data to know where the cut point was, so
+        # this arbitrarily puts it in the middle of the transition
+        pre_cut = math.floor(transition_duration.value / 2)
+        post_cut = transition_duration.value - pre_cut
+        mid_tran_cut_pre_duration = opentime.RationalTime(
+            pre_cut,
+            transition_duration.rate
+        )
+        mid_tran_cut_post_duration = opentime.RationalTime(
+            post_cut,
+            transition_duration.rate
+        )
+        # build a transition
+        new_trx = schema.Transition(
+            name=self.clip.name,
+            # only supported type at the moment
+            transition_type=otio_transition_type,
+            metadata={},
+        )
+        new_trx.in_offset = mid_tran_cut_pre_duration
+        new_trx.out_offset = mid_tran_cut_post_duration
+        return new_trx
 
 class CommentHandler(object):
     # this is the for that all comment 'id' tags take
@@ -752,7 +841,8 @@ def _expand_transitions(timeline):
                 name=clip.name,
                 # only supported type at the moment
                 transition_type=otio_transition_type,
-                metadata=clip.metadata,
+                # make a copy to avoid having clips pointing to the same dict
+                metadata=copy.deepcopy(clip.metadata),
             )
             new_trx.in_offset = mid_tran_cut_pre_duration
             new_trx.out_offset = mid_tran_cut_post_duration
@@ -894,7 +984,7 @@ def read_from_string(input_str, rate=24, ignore_timecode_mismatch=False):
         ignore_timecode_mismatch=ignore_timecode_mismatch
     )
     result = parser.timeline
-    result = _expand_transitions(result)
+    #result = _expand_transitions(result)
     return result
 
 
