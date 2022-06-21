@@ -494,15 +494,18 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
         self.assertEqual(len(tl.tracks[0]), 4)
 
         self.assertTrue(isinstance(tl.tracks[0][1], otio.schema.Transition))
-
+        # The 9 frames edit is extended by 5 frames and the transition is 10 frames long
+        # the visible range must contains all the frames needed for the transition
         self.assertEqual(tl.tracks[0][0].duration().value, 14)
+        # Edit duration + transition duration
+        self.assertEqual(tl.tracks[0][0].visible_range().duration.to_frames(), 19)
         self.assertEqual(tl.tracks[0][0].name, "clip_A")
         self.assertEqual(tl.tracks[0][1].duration().value, 10)
-        self.assertEqual(tl.tracks[0][0].name, "clip_T")
+        self.assertEqual(tl.tracks[0][1].name, "SMPTE_Dissolve from clip_A to clip_B")
         self.assertEqual(tl.tracks[0][2].duration().value, 10)
-        self.assertEqual(tl.tracks[0][0].name, "clip_B")
+        self.assertEqual(tl.tracks[0][2].name, "clip_B")
         self.assertEqual(tl.tracks[0][3].duration().value, 1)
-        self.assertEqual(tl.tracks[0][0].name, "clip_B")
+        self.assertEqual(tl.tracks[0][2].name, "clip_B")
 
     def test_dissolve_parse_middle(self):
         tl = otio.adapters.read_from_file(DISSOLVE_TEST_2)
