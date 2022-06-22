@@ -494,9 +494,8 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
         self.assertEqual(len(tl.tracks[0]), 4)
 
         self.assertTrue(isinstance(tl.tracks[0][1], otio.schema.Transition))
-        # The 9 frames edit is extended by 5 frames and the transition is 10 frames long
-        # the visible range must contains all the frames needed for the transition
-        self.assertEqual(tl.tracks[0][0].duration().value, 14)
+        self.assertEqual(tl.tracks[0][0].duration().value, 9)
+        # The visible range must contains all the frames needed for the transition
         # Edit duration + transition duration
         self.assertEqual(tl.tracks[0][0].visible_range().duration.to_frames(), 19)
         self.assertEqual(tl.tracks[0][0].name, "clip_A")
@@ -509,14 +508,24 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
 
     def test_dissolve_parse_middle(self):
         tl = otio.adapters.read_from_file(DISSOLVE_TEST_2)
-        self.assertEqual(len(tl.tracks[0]), 3)
-
-        self.assertTrue(isinstance(tl.tracks[0][1], otio.schema.Transition))
-
         trck = tl.tracks[0]
-        self.assertEqual(trck[0].duration().value, 10)
-        self.assertEqual(trck[2].source_range.start_time.value, 86400 + 201)
+        # 3 clips and 1 transition
+        self.assertEqual(len(trck), 4)
+
+        self.assertTrue(isinstance(trck[1], otio.schema.Transition))
+
+        self.assertEqual(trck[0].duration().value, 5)
+        self.assertEqual(trck[0].visible_range().duration.to_frames(), 15)
+        self.assertEqual(trck[1].duration().value, 10)
+        self.assertEqual(trck[1].name, "SMPTE_Dissolve from clip_A to clip_B")
+
+        self.assertEqual(
+            trck[2].source_range.start_time.value,
+            otio.opentime.from_timecode('01:00:08:04', 24).value
+        )
+        self.assertEqual(trck[2].name, "clip_B")
         self.assertEqual(trck[2].duration().value, 10)
+        self.assertEqual(tl.tracks[0][0].visible_range().duration.to_frames(), 15)
 
     def test_dissolve_parse_full_clip_dissolve(self):
         tl = otio.adapters.read_from_file(DISSOLVE_TEST_3)

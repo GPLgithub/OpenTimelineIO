@@ -217,12 +217,8 @@ class EDLParser(object):
             if track_transition:
                 if len(track) < 1:
                     raise EDLParseError(
-                        "Transitions can't be at the beginning of a track"
+                        "Transitions can't be at the very beginning of a track"
                     )
-                prev_clip = track[-1]
-                _extend_source_range_duration(
-                    prev_clip, track_transition.in_offset,
-                )
                 track.append(track_transition)
             track.append(track_clip)
             _extend_source_range_duration(track, track_clip.duration())
@@ -312,7 +308,7 @@ class EDLParser(object):
 
                 line_1 = edl_lines.pop(0)
                 line_2 = edl_lines.pop(0)
-
+                # TODO: check if transitions can happen in this case
                 comments = []
                 while edl_lines:
                     if re.match(r'^\D', edl_lines[0]):
@@ -329,11 +325,14 @@ class EDLParser(object):
                 comments = []
                 event_id = int(re.match(r'^\d+', line).group(0))
                 while edl_lines:
-                    # any non-numbered lines after an edit decision should be
-                    # treated as 'comments'
-                    # comments are string tags used by the reader to get extra
+                    # Any non-numbered lines after an edit decision should be
+                    # treated as 'comments'.
+                    # Comments are string tags used by the reader to get extra
                     # information not able to be found in the restricted edl
-                    # format
+                    # format.
+                    # If the current event id is repeated it means that there is
+                    # a transition between the current event and the preceding
+                    # one. We collect it and process it when adding the clip.
                     m = re.match(r'^\d+', edl_lines[0])
                     if not m:
                         comments.append(edl_lines.pop(0))
@@ -657,21 +656,25 @@ class ClipHandler(object):
                 "Transition type '{}' not supported by the CMX EDL reader "
                 "currently.".format(transition_type)
             )
+        # TODO: support delayed transition like described here:
+        # https://xmil.biz/EDL-X/CMX3600.pdf
+        transition_duration = opentime.RationalTime(
+            float(self.transition_data),
+            self.clip.source_range.duration.rate
+        )
+        # Note: Transitions in EDLs are unconventionally represented.
+        #
+        # Where a transition might normally be visualized like:
+        #            |---57.0 Trans 43.0----|
+        # |------Clip1 102.0------|----------Clip2 143.0----------|Clip3 24.0|
+        #
+        # In an EDL it can be thought of more like this:
+        #            |---0.0 Trans 100.0----|
+        # |Clip1 45.0|----------------Clip2 200.0-----------------|Clip3 24.0|
+        #
+        # So the transition starts at the beginning of the clip with `duration`
+        # frames from the previous clip.
 
-        transition_duration = self.clip.source_range.duration
-        # EDL doesn't have enough data to know where the cut point was, so
-        # this arbitrarily puts it in the middle of the transition
-        pre_cut = math.floor(transition_duration.value / 2)
-        post_cut = transition_duration.value - pre_cut
-        mid_tran_cut_pre_duration = opentime.RationalTime(
-            pre_cut,
-            transition_duration.rate
-        )
-        mid_tran_cut_post_duration = opentime.RationalTime(
-            post_cut,
-            transition_duration.rate
-        )
-        # build a transition
         transition_name = '{} to {}'.format(
             otio_transition_type,
             self.clip.name,
@@ -690,8 +693,11 @@ class ClipHandler(object):
             transition_type=otio_transition_type,
             metadata={},
         )
-        new_trx.in_offset = mid_tran_cut_pre_duration
-        new_trx.out_offset = mid_tran_cut_post_duration
+        new_trx.in_offset = opentime.RationalTime(
+            0,
+            transition_duration.rate
+        )
+        new_trx.out_offset = transition_duration
         return new_trx
 
 class CommentHandler(object):
