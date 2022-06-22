@@ -538,25 +538,28 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
 
         trck = tl.tracks[0]
         clip_a = trck[0]
-        self.assertEqual(clip_a.name, "Clip A.mov")
+        self.assertEqual(clip_a.name, "Clip_A.mov")
         self.assertEqual(clip_a.duration().value, 61)
         self.assertEqual(clip_a.visible_range().duration.value, 61 + 30)
 
         transition = trck[1]
         # Note: clip names in the EDL are wrong, the transition is actually
-        # from Clip A to Clip B
-        self.assertEqual(transition.name, "SMPTE_Dissolve from Clip B.mov to Clip C.mov")
+        # from Clip_A to Clip_B
+        self.assertEqual(
+            transition.name,
+            "SMPTE_Dissolve from Clip_B.mov to Clip_C.mov"
+        )
         self.assertEqual(transition.in_offset.value, 0)
         self.assertEqual(transition.out_offset.value, 30)
 
         clip_c = trck[2]
-        self.assertEqual(clip_c.name, "Clip C.mov")
+        self.assertEqual(clip_c.name, "Clip_C.mov")
         self.assertEqual(clip_c.source_range.start_time.value, 86400 + (33 * 24 + 22))
         self.assertEqual(clip_c.duration().value, 30)
         self.assertEqual(clip_c.visible_range().duration.value, 30)
 
         clip_d = trck[3]
-        self.assertEqual(clip_d.name, "Clip D.mov")
+        self.assertEqual(clip_d.name, "Clip_D.mov")
         self.assertEqual(clip_d.source_range.start_time.value, 86400)
         self.assertEqual(clip_d.duration().value, 46)
 
@@ -606,6 +609,40 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
         self.assertEqual(tl.tracks[0][2].media_reference.generator_kind, 'black')
         self.assertEqual(tl.tracks[0][2].duration().value, 24)
         self.assertEqual(tl.tracks[0][2].source_range.start_time.value, 0)
+
+    def test_edl_round_trip_with_transitions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Notes:
+            # - the writer does not handle wipes, only dissolves
+            # - the writer can generate invalid EDLs if spaces are in reel names.
+            for edl_file in [
+                DISSOLVE_TEST,
+                DISSOLVE_TEST_2,
+                DISSOLVE_TEST_3,
+                DISSOLVE_TEST_4
+            ]:
+                edl_name = os.path.basename(edl_file)
+                timeline = otio.adapters.read_from_file(edl_file)
+                tmp_path = os.path.join(
+                    temp_dir,
+                    'test_edl_round_trip_{}'.format(edl_name)
+                )
+                otio.adapters.write_to_file(timeline, tmp_path)
+
+                result = otio.adapters.read_from_file(tmp_path)
+                self.assertEqual(len(timeline.tracks), len(result.tracks))
+                for track, res_track in zip(timeline.tracks, result.tracks):
+                    self.assertEqual(len(track), len(res_track))
+                    for child, res_child in zip(track, res_track):
+                        self.assertEqual(type(child), type(res_child))
+                        if isinstance(child, otio.schema.Transition):
+                            self.assertEqual(child.in_offset, res_child.in_offset)
+                            self.assertEqual(child.out_offset, res_child.out_offset)
+                            self.assertEqual(
+                                child.transition_type, res_child.transition_type
+                            )
+                        else:
+                            self.assertEqual(child.source_range, res_child.source_range)
 
     def test_edl_25fps(self):
         # EXERCISE
@@ -1171,8 +1208,6 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
         """
         tl = otio.adapters.read_from_file(DISSOLVE_TEST_4)
         self.assertEqual(len(tl.tracks[0]), 8)
-
-
 
         self.assertEqual(tl.tracks[0][0].duration().value, 30.0)
         self.assertEqual(tl.tracks[0][1].duration().value, 51.0)

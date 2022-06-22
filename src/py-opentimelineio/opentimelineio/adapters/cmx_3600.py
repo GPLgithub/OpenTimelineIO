@@ -15,7 +15,6 @@
 import copy
 import os
 import re
-import math
 import collections
 
 from .. import (
@@ -250,12 +249,6 @@ class EDLParser(object):
         # Return a list of actual tracks
         return [self.tracks_by_name[c] for c in track_names]
 
-    def add_transition(self, clip_handler, transition, data):
-        if transition not in ['C']:
-            md = clip_handler.clip.metadata.setdefault("cmx_3600", {})
-            md["transition"] = transition
-            md["transition_duration"] = float(data)
-
     def parse_edl(self, edl_string, rate=24):
         # edl 'events' can be comprised of an indeterminate amount of lines
         # we are to translating 'events' to a single clip and transition
@@ -350,8 +343,12 @@ class EDLParser(object):
                             # New event, stop collecting comments and transitions
                             break
 
-                self.add_clip(line, comments, rate=rate, transition_line=transition_line)
-
+                self.add_clip(
+                    line,
+                    comments,
+                    rate=rate,
+                    transition_line=transition_line
+                )
             else:
                 raise EDLParseError('Unknown event type')
 
@@ -506,11 +503,8 @@ class ClipHandler(object):
                 }
             }
 
-        # In transitions, some of the source clip metadata might fall in the
-        # transition clip event
+        # Get the clip name from "TO CLIP NAME" if present
         if 'dest_clip_name' in comment_data:
-            previous_meta = clip.metadata.setdefault('previous_metadata', {})
-            previous_meta['source_clip_name'] = clip.name
             clip.name = comment_data['dest_clip_name']
 
         if 'locators' in comment_data:
@@ -654,7 +648,7 @@ class ClipHandler(object):
         else:
             raise EDLParseError(
                 "Transition type '{}' not supported by the CMX EDL reader "
-                "currently.".format(transition_type)
+                "currently.".format(self.transition_type)
             )
         # TODO: support delayed transition like described here:
         # https://xmil.biz/EDL-X/CMX3600.pdf
@@ -705,6 +699,7 @@ class ClipHandler(object):
         )
         new_trx.out_offset = transition_duration
         return new_trx
+
 
 class CommentHandler(object):
     # this is the for that all comment 'id' tags take
