@@ -502,6 +502,7 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
         self.assertEqual(tl.tracks[0][1].duration().value, 10)
         self.assertEqual(tl.tracks[0][1].name, "SMPTE_Dissolve from clip_A to clip_B")
         self.assertEqual(tl.tracks[0][2].duration().value, 10)
+        self.assertEqual(tl.tracks[0][2].visible_range().duration.value, 10)
         self.assertEqual(tl.tracks[0][2].name, "clip_B")
         self.assertEqual(tl.tracks[0][3].duration().value, 1)
         self.assertEqual(tl.tracks[0][2].name, "clip_B")
@@ -525,6 +526,8 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
         )
         self.assertEqual(trck[2].name, "clip_B")
         self.assertEqual(trck[2].duration().value, 10)
+        self.assertEqual(trck[2].visible_range().duration.value, 10)
+
         self.assertEqual(tl.tracks[0][0].visible_range().duration.to_frames(), 15)
 
     def test_dissolve_parse_full_clip_dissolve(self):
@@ -550,6 +553,7 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
         self.assertEqual(clip_c.name, "Clip C.mov")
         self.assertEqual(clip_c.source_range.start_time.value, 86400 + (33 * 24 + 22))
         self.assertEqual(clip_c.duration().value, 30)
+        self.assertEqual(clip_c.visible_range().duration.value, 30)
 
         clip_d = trck[3]
         self.assertEqual(clip_d.name, "Clip D.mov")
@@ -571,16 +575,20 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
 
     def test_wipe_parse(self):
         tl = otio.adapters.read_from_file(WIPE_TEST)
-        self.assertEqual(len(tl.tracks[0]), 3)
+        self.assertEqual(len(tl.tracks[0]), 4)
 
         wipe = tl.tracks[0][1]
         self.assertTrue(isinstance(wipe, otio.schema.Transition))
-
         self.assertEqual(wipe.transition_type, "SMPTE_Wipe")
         self.assertEqual(wipe.metadata["cmx_3600"]["transition"], "W001")
 
-        self.assertEqual(tl.tracks[0][0].duration().value, 14)
-        self.assertEqual(tl.tracks[0][2].duration().value, 6)
+        self.assertEqual(tl.tracks[0][0].duration().value, 9)
+        self.assertEqual(tl.tracks[0][0].visible_range().duration.value, 19)
+
+        self.assertEqual(tl.tracks[0][2].duration().value, 10)
+        self.assertEqual(tl.tracks[0][2].visible_range().duration.value, 10)
+
+        self.assertEqual(tl.tracks[0][3].duration().value, 1)
 
     def test_fade_to_black(self):
         # EXERCISE
@@ -1164,18 +1172,19 @@ V     C        00:00:00:00 00:00:00:05 00:00:00:00 00:00:00:05
         tl = otio.adapters.read_from_file(DISSOLVE_TEST_4)
         self.assertEqual(len(tl.tracks[0]), 8)
 
-        self.assertIsInstance(tl.tracks[0][2], otio.schema.Transition)
-        self.assertEqual(tl.tracks[0][2].duration().value, 35.0)
 
-        self.assertIsInstance(tl.tracks[0][4], otio.schema.Transition)
-        self.assertEqual(tl.tracks[0][4].duration().value, 64.0)
 
         self.assertEqual(tl.tracks[0][0].duration().value, 30.0)
         self.assertEqual(tl.tracks[0][1].duration().value, 51.0)
         self.assertEqual(tl.tracks[0][1].visible_range().duration.value, 51 + 35)
-        self.assertEqual(tl.tracks[0][3].duration().value, 96.0)
-        self.assertEqual(tl.tracks[0][1].visible_range().duration.value, 96)
-        self.assertEqual(tl.tracks[0][5].duration().value, 52.0)
+        self.assertIsInstance(tl.tracks[0][2], otio.schema.Transition)
+        self.assertEqual(tl.tracks[0][2].duration().value, 35.0)
+        self.assertEqual(tl.tracks[0][3].duration().value, 81.0)
+        self.assertEqual(tl.tracks[0][3].visible_range().duration.value, 81 + 64)
+        self.assertIsInstance(tl.tracks[0][4], otio.schema.Transition)
+        self.assertEqual(tl.tracks[0][4].duration().value, 64.0)
+        self.assertEqual(tl.tracks[0][5].duration().value, 84.0)
+        self.assertEqual(tl.tracks[0][5].visible_range().duration.value, 84.0)
         self.assertEqual(tl.tracks[0][6].duration().value, 96.0)
         self.assertEqual(tl.tracks[0][7].duration().value, 135.0)
 

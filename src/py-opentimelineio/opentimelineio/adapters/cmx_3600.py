@@ -675,6 +675,7 @@ class ClipHandler(object):
         # So the transition starts at the beginning of the clip with `duration`
         # frames from the previous clip.
 
+        # Give the transition a detailed name if we can
         transition_name = '{} to {}'.format(
             otio_transition_type,
             self.clip.name,
@@ -691,7 +692,12 @@ class ClipHandler(object):
             name=transition_name,
             # only supported type at the moment
             transition_type=otio_transition_type,
-            metadata={},
+            metadata={
+                'cmx_3600': {
+                    'transition': self.transition_type,
+                    'transition_duration': transition_duration.value,
+                }
+            },
         )
         new_trx.in_offset = opentime.RationalTime(
             0,
